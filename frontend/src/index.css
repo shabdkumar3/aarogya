@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  html { font-family: 'Inter', 'Noto Sans Devanagari', system-ui, sans-serif; }
+  body { @apply bg-surface-50 text-gray-800 min-h-screen; }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-primary-600 text-white font-semibold px-5 py-3 rounded-xl
+           min-h-[48px] hover:bg-primary-700 active:scale-95
+           transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply border-2 border-primary-600 text-primary-600 font-semibold px-5 py-3
+           rounded-xl min-h-[48px] hover:bg-primary-50 active:scale-95
+           transition-all duration-150;
+  }
+  .card {
+    @apply bg-white rounded-2xl shadow-card p-4;
+  }
+  .input {
+    @apply w-full border border-gray-200 rounded-xl px-4 py-3 text-sm
+           focus:outline-none focus:ring-2 focus:ring-primary-600/30 focus:border-primary-600
+           placeholder:text-gray-400 transition-all;
+  }
+  .badge-urgent   { @apply bg-red-100 text-red-700 text-xs font-semibold px-2 py-0.5 rounded-full; }
+  .badge-moderate { @apply bg-amber-100 text-amber-700 text-xs font-semibold px-2 py-0.5 rounded-full; }
+  .badge-stable   { @apply bg-green-100 text-green-700 text-xs font-semibold px-2 py-0.5 rounded-full; }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #f0f7f2; }
+::-webkit-scrollbar-thumb { background: #a4d4b5; border-radius: 3px; }

@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python app.py)",
+      "Read(//c/Users/vishe/AppData/Local/Temp/claude/c--Users-vishe-Pictures-New-folder--2--gemma-for-good-aarogya/29122e10-48ff-4852-8ee3-c4b50eb0f857/tasks/**)",
+      "Bash(netstat -ano)",
+      "Bash(findstr \"786\")",
+      "Bash(ls \"c:/Users/vishe/Pictures/New folder \\(2\\)/gemma for good/\" 2>&1)",
+      "Read(//c/Users/vishe/Pictures/New folder \\(2\\)/gemma for good/**)",
+      "Bash(findstr :7862)",
+      "Bash(awk '{print $5}')",
+      "Bash(xargs -I{} taskkill /F /PID {})",
+      "Bash(python -c ' *)"
+    ]
+  }
+}

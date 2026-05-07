@@ -1,12 +1,24 @@
+---
+title: Aarogya
+emoji: 🌿
+colorFrom: green
+colorTo: yellow
+sdk: docker
+app_port: 7860
+pinned: true
+license: apache-2.0
+short_description: AI Health Companion for ASHA Workers (Gemma 4)
+---
+
 # 🌿 Aarogya — AI Health Companion
 
 **Empowering 1 million ASHA Workers with Gemma 4**
 
 > Built for the [Gemma 4 Good Hackathon](https://kaggle.com/competitions/gemma-4-good-hackathon) — Kaggle × Google DeepMind
 
-[![Demo](https://img.shields.io/badge/Live%20Demo-HuggingFace%20Space-orange)](https://huggingface.co/spaces/YOUR_USERNAME/aarogya)
-[![Video](https://img.shields.io/badge/Demo%20Video-YouTube-red)](https://youtube.com/YOUR_VIDEO)
-[![Kaggle](https://img.shields.io/badge/Writeup-Kaggle-blue)](https://kaggle.com/YOUR_WRITEUP)
+[![Demo](https://img.shields.io/badge/Live%20Demo-HuggingFace%20Space-orange)](https://huggingface.co/spaces/sk3306/aarogya)
+[![Code](https://img.shields.io/badge/Code-GitHub-black)](https://github.com/shabdkumar3/aarogya)
+[![Video](https://img.shields.io/badge/Demo%20Video-YouTube-red)](https://youtube.com/)
 
 ---
 

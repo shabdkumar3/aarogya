@@ -9,12 +9,12 @@ def build_dashboard_tab():
         with gr.Row():
             with gr.Column(scale=2):
                 refresh_btn   = gr.Button("🔄 Refresh Dashboard", variant="primary")
-                dashboard_out = gr.Markdown(value="*Click Refresh Dashboard to load statistics.*")
+                dashboard_out = gr.Markdown(value="*Click Refresh to load patient statistics.*")
 
             with gr.Column(scale=1):
-                gr.HTML('<div style="color:#94A3B8;font-size:0.8rem;font-weight:600;margin-bottom:8px;">WEEKLY HEALTH TIPS</div>')
-                tips_btn = gr.Button("Generate Tips with Gemma", variant="secondary")
-                tips_out = gr.Markdown(value="*Click to generate AI health tips.*")
+                gr.HTML('<div style="color:#94A3B8;font-size:0.78rem;font-weight:700;margin-bottom:8px;letter-spacing:.05em">WEEKLY HEALTH TIPS</div>')
+                tips_btn   = gr.Button("Generate Tips with Gemma", variant="secondary")
+                tips_out   = gr.Markdown(value="*Click to generate AI-powered health tips for ASHA workers.*")
                 tips_model = gr.Textbox(label="Model", interactive=False, value="—")
 
         def do_refresh():

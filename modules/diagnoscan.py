@@ -1,142 +1,165 @@
-import base64
-import json
-import os
-import io
+"""DiagnoScan — multimodal triage using Gemma 4."""
+import base64, json, os, io
 from datetime import datetime
-from PIL import Image
-from database.queries import (
-    save_diagnosis, get_diagnoses_for_patient,
-    parse_dropdown, get_patient_by_id
-)
-from llm.client import call_gemma_multimodal
+from database.queries import save_diagnosis, get_diagnoses_for_patient, get_patient_by_id
+from llm.client import call_gemma_multimodal, call_gemma_text
 from llm.prompts import DIAGNOSCAN_PROMPT
 
 IMAGE_SAVE_DIR = "saved_images"
 os.makedirs(IMAGE_SAVE_DIR, exist_ok=True)
 
 URGENCY_EMOJI = {
-    "Monitor at Home": "🟢",
-    "Visit PHC": "🟡",
-    "Emergency Referral": "🔴"
+    "Monitor at Home":   "🟢",
+    "Visit PHC":         "🟡",
+    "Emergency Referral":"🔴",
 }
 
+def _pil_to_b64(image):
+    try:
+        from PIL import Image
+        buf = io.BytesIO()
+        image.convert("RGB").save(buf, format="JPEG", quality=85)
+        return base64.b64encode(buf.getvalue()).decode("utf-8")
+    except Exception:
+        return None
 
-def pil_to_base64(image: Image.Image) -> str:
-    buf = io.BytesIO()
-    image.convert("RGB").save(buf, format="JPEG", quality=85)
-    return base64.b64encode(buf.getvalue()).decode("utf-8")
+def _save_image(image):
+    try:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = os.path.join(IMAGE_SAVE_DIR, f"img_{ts}.jpg")
+        image.convert("RGB").save(path, "JPEG")
+        return path
+    except Exception:
+        return ""
 
-
-def save_image_to_disk(image: Image.Image) -> str:
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = os.path.join(IMAGE_SAVE_DIR, f"img_{ts}.jpg")
-    image.convert("RGB").save(path, "JPEG")
-    return path
-
-
-def parse_json_response(raw: str):
+def _parse_json(raw):
+    """Try to extract JSON from raw LLM response."""
+    if not raw:
+        return None
     clean = raw.strip()
+    # Strip markdown fences
     if "```" in clean:
-        parts = clean.split("```")
-        for part in parts:
-            stripped = part.strip()
-            if stripped.startswith("json"):
-                stripped = stripped[4:].strip()
+        for part in clean.split("```"):
+            part = part.strip().lstrip("json").strip()
             try:
-                return json.loads(stripped)
-            except:
+                return json.loads(part)
+            except Exception:
                 continue
     try:
         return json.loads(clean)
-    except:
+    except Exception:
+        pass
+    # Try to find first { ... } block
+    try:
+        start = clean.index("{")
+        end   = clean.rindex("}") + 1
+        return json.loads(clean[start:end])
+    except Exception:
         return None
 
 
-def run_diagnoscan(patient_dropdown, image, symptom_text, language):
-    pid = parse_dropdown(patient_dropdown)
+def run_diagnoscan(pid, symptoms, image, language):
+    """
+    Args: pid(int), symptoms(str), image(PIL Image or None), language(str)
+    Returns: (formatted_markdown: str, model_used: str)
+    """
     if not pid:
-        return "", "", "Please select a patient."
-    if image is None:
-        return "", "", "Please upload an image of the condition."
-    if not symptom_text or not symptom_text.strip():
-        return "", "", "Please describe the symptoms."
+        return "⚠️ No patient selected.", "—"
+    if not symptoms or not str(symptoms).strip():
+        return "⚠️ Please describe the symptoms.", "—"
 
-    patient = get_patient_by_id(pid)
-    image_path = save_image_to_disk(image)
-    image_b64 = pil_to_base64(image)
+    try:
+        patient = get_patient_by_id(int(pid)) or {}
+    except Exception:
+        patient = {}
 
-    prompt = DIAGNOSCAN_PROMPT.format(
-        symptoms=symptom_text.strip(),
-        existing_conditions=patient.get("conditions", "None"),
-        allergies=patient.get("allergies", "None"),
-        language=language
-    )
+    image_path = ""
+    raw_response = ""
+    model_used = "—"
 
-    raw_response, model_used = call_gemma_multimodal(prompt, image_b64)
+    try:
+        prompt = DIAGNOSCAN_PROMPT.format(
+            symptoms=str(symptoms).strip(),
+            existing_conditions=patient.get("conditions") or "None",
+            allergies=patient.get("allergies") or "None",
+            language=language or "English",
+        )
 
-    if raw_response is None:
-        return "", "", "LLM call failed. Check API key or Ollama connection."
+        if image is not None:
+            image_path = _save_image(image)
+            image_b64  = _pil_to_b64(image)
+            if image_b64:
+                raw_response, model_used = call_gemma_multimodal(prompt, image_b64)
+            else:
+                raw_response, model_used = call_gemma_text(prompt)
+        else:
+            raw_response, model_used = call_gemma_text(prompt)
 
-    parsed = parse_json_response(raw_response)
-    if parsed is None:
-        return "", raw_response, "Could not parse model response. Raw output shown."
+    except Exception as e:
+        raw_response = f"API error: {e}"
+        model_used   = "error"
 
-    save_diagnosis(
-        patient_id=pid,
-        image_path=image_path,
-        symptom_description=symptom_text.strip(),
-        raw_response=raw_response,
-        conditions=", ".join(parsed.get("conditions", [])),
-        urgency=parsed.get("urgency", "Unknown"),
-        next_steps="; ".join(parsed.get("next_steps", [])),
-        red_flags="; ".join(parsed.get("red_flags", [])),
-        model_used=model_used
-    )
+    parsed = _parse_json(raw_response)
 
-    urgency = parsed.get("urgency", "Unknown")
-    emoji = URGENCY_EMOJI.get(urgency, "⚪")
-    conditions = "\n".join(f"- {c}" for c in parsed.get("conditions", []))
-    next_steps = "\n".join(f"- {s}" for s in parsed.get("next_steps", []))
-    red_flags = "\n".join(f"- {r}" for r in parsed.get("red_flags", []))
-    asha_note = parsed.get("asha_note", "")
+    # Save to DB regardless of parse success
+    try:
+        save_diagnosis(
+            patient_id=int(pid),
+            image_path=image_path,
+            symptom_description=str(symptoms).strip(),
+            raw_response=raw_response or "",
+            conditions=", ".join(parsed.get("conditions", [])) if parsed else "",
+            urgency=parsed.get("urgency", "") if parsed else "",
+            next_steps="; ".join(parsed.get("next_steps", [])) if parsed else "",
+            red_flags="; ".join(parsed.get("red_flags", [])) if parsed else "",
+            model_used=model_used,
+        )
+    except Exception:
+        pass
 
-    formatted = f"""
-## {emoji} Urgency: **{urgency}**
+    if parsed:
+        urgency   = parsed.get("urgency", "Unknown")
+        emoji     = URGENCY_EMOJI.get(urgency, "⚪")
+        conditions= "\n".join(f"- {c}" for c in parsed.get("conditions", []))
+        steps     = "\n".join(f"- {s}" for s in parsed.get("next_steps", []))
+        flags     = "\n".join(f"- {r}" for r in parsed.get("red_flags", []))
+        asha_note = parsed.get("asha_note", "")
+        ts        = datetime.now().strftime("%d %b %Y, %I:%M %p")
+        result = (
+            f"## {emoji} Urgency: **{urgency}**\n\n"
+            f"### Possible Conditions\n{conditions}\n\n"
+            f"### Recommended Next Steps\n{steps}\n\n"
+            f"### Red Flag Symptoms — Watch For\n{flags}\n\n"
+            f"### ASHA Worker Note\n{asha_note}\n\n"
+            f"---\n*Model: {model_used} | {ts}*\n"
+            f"*Triage support only — not a clinical diagnosis.*"
+        )
+    else:
+        result = (
+            f"⚠️ Could not parse structured response.\n\n"
+            f"**Raw model output:**\n\n{raw_response}\n\n"
+            f"---\n*Model: {model_used}*"
+        )
 
-### Possible Conditions
-{conditions}
-
-### Recommended Next Steps
-{next_steps}
-
-### Red Flag Symptoms — Watch For These
-{red_flags}
-
-### Note for ASHA Worker
-{asha_note}
-
----
-*Model: {model_used} | {datetime.now().strftime("%d %b %Y, %I:%M %p")}*
-*This is triage support only — not a clinical diagnosis.*
-"""
-    return formatted, raw_response, None
+    return result, model_used
 
 
-def get_diagnosis_history_markdown(patient_dropdown):
-    pid = parse_dropdown(patient_dropdown)
+def get_diagnosis_history_markdown(pid):
+    """Returns markdown history for a patient. pid is int."""
     if not pid:
-        return "No patient selected."
-    diagnoses = get_diagnoses_for_patient(pid)
+        return "*No patient selected.*"
+    try:
+        diagnoses = get_diagnoses_for_patient(int(pid))
+    except Exception:
+        return "*Error loading history.*"
     if not diagnoses:
-        return "No diagnoses recorded yet for this patient."
-
+        return "*No diagnoses recorded yet.*"
     parts = []
-    for d in diagnoses:
-        emoji = URGENCY_EMOJI.get(d['urgency'], "⚪")
-        parts.append(f"""
----
-**{d['created_at'][:10]}** — {emoji} {d['urgency']}
-**Conditions:** {d['conditions']}
-**Symptoms:** {d['symptom_description']}
-""")
-    return "\n".join(parts)
+    for d in diagnoses[:10]:
+        emoji = URGENCY_EMOJI.get(d.get('urgency', ''), "⚪")
+        parts.append(
+            f"**{str(d.get('created_at',''))[:10]}** — {emoji} {d.get('urgency','')}\n"
+            f"Conditions: {d.get('conditions','')}\n"
+            f"Symptoms: {d.get('symptom_description','')[:120]}"
+        )
+    return "\n\n---\n\n".join(parts)

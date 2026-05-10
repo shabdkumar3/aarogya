@@ -14,17 +14,31 @@ GTTS_LANG_CODES = {
 }
 
 
+_FW_MODEL = None
+
+
+def _get_whisper_model():
+    """Lazy-load faster-whisper (CTranslate2-based, works on Python 3.11+)."""
+    global _FW_MODEL
+    if _FW_MODEL is not None:
+        return _FW_MODEL
+    from faster_whisper import WhisperModel
+    _FW_MODEL = WhisperModel("base", device="cpu", compute_type="int8")
+    return _FW_MODEL
+
+
 def transcribe_audio(audio_path: str, language: str = "Hindi"):
     try:
-        import whisper
+        model = _get_whisper_model()
     except ImportError:
-        return "", "Whisper not installed. Run: pip install openai-whisper"
+        return "", "faster-whisper not installed. Run: pip install faster-whisper"
+    except Exception as e:
+        return "", f"Whisper model load failed: {e}"
 
     lang_code = WHISPER_LANG_CODES.get(language, "hi")
     try:
-        model = whisper.load_model("base")
-        result = model.transcribe(audio_path, language=lang_code)
-        text = result.get("text", "").strip()
+        segments, _info = model.transcribe(audio_path, language=lang_code, beam_size=1)
+        text = " ".join(seg.text for seg in segments).strip()
         if not text:
             return "", "Could not understand the audio. Please try speaking more clearly."
         return text, None

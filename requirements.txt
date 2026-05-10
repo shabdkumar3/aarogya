@@ -1,11 +1,11 @@
 # Core
-gradio==4.44.0
-python-dotenv==1.0.1
-Pillow==10.4.0
-requests==2.32.3
+gradio>=4.44.0
+python-dotenv>=1.0.1
+Pillow>=10.4.0
+requests>=2.32.3
 
-# Voice — STT
-openai-whisper==20231117
+# Voice — STT (faster-whisper works on Python 3.11+, openai-whisper does not)
+faster-whisper==1.0.3
 ffmpeg-python==0.2.0
 
 # Voice — TTS
@@ -14,15 +14,10 @@ gTTS==2.5.1
 # PDF Reports
 reportlab==4.2.2
 
-# Fine-tuning (run only in Kaggle/Colab with GPU)
-# unsloth==2024.11.10
-# trl==0.11.4
-# datasets==3.1.0
-# transformers==4.46.3
-# torch==2.4.0
-# bitsandbytes==0.44.1
+# Fine-tuning (Kaggle GPU only — see finetuning/AAROGYA_KAGGLE.ipynb)
+# unsloth, trl, datasets, transformers, torch, bitsandbytes
 
-# REST API for React frontend
+# REST API (optional — only if running api.py)
 fastapi==0.111.0
 uvicorn[standard]==0.30.1
 python-multipart==0.0.9

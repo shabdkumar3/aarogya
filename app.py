@@ -24,6 +24,7 @@ def _find_open_port(start=7860, end=7900):
                 continue
     return 0  # let OS pick
 
+
 def main():
     initialize_database()
 
@@ -56,7 +57,12 @@ def main():
         border_color_primary_dark="#2A3441",
     )
 
-    with gr.Blocks(title="Aarogya — AI Health Companion") as app:
+    # theme and css go in gr.Blocks() — not in launch()
+    with gr.Blocks(
+        title="Aarogya — AI Health Companion",
+        theme=dark_theme,
+        css=CUSTOM_CSS,
+    ) as app:
 
         gr.HTML("""
         <div class="app-header">
@@ -70,7 +76,7 @@ def main():
             </div>
             <div class="app-tagline">
               <span class="aa-chip">🧠 Gemma 4 Multimodal</span>
-              <span class="aa-chip">🌐 Hindi · English · Marathi</span>
+              <span class="aa-chip">🌐 Hindi · English · Tamil</span>
               <span class="aa-chip">⚙️ Native Function Calling</span>
               <span class="aa-chip aa-chip-accent">📡 Offline via Ollama</span>
               <span class="aa-chip aa-chip-accent">🔥 Fine-tuned with Unsloth</span>
@@ -83,24 +89,34 @@ def main():
         </div>
         """)
 
-        build_registry_tab()
-        build_diagnoscan_tab()
-        build_medtrack_tab()
-        build_dashboard_tab()
-        build_patient_lite_tab()
-        build_reports_tab()
+        with gr.Tabs():
+            build_registry_tab()
+            build_diagnoscan_tab()
+            build_medtrack_tab()
+            build_dashboard_tab()
+            build_patient_lite_tab()
+            build_reports_tab()
 
-    # Detect environment: HF Space sets SPACE_ID, Docker/server contexts need 0.0.0.0
+        gr.HTML("""
+        <div class="app-footer">
+          Built with ❤️ for rural India &nbsp;|&nbsp;
+          <a href="https://github.com/shabdkumar3/aarogya" target="_blank">GitHub</a> &nbsp;|&nbsp;
+          Powered by <strong>Gemma 4</strong> via Google AI Studio &nbsp;|&nbsp;
+          Kaggle &times; Google DeepMind Hackathon 2026
+        </div>
+        """)
+
+    # Detect environment
     is_hosted = bool(os.getenv("SPACE_ID") or os.getenv("GRADIO_SERVER_NAME"))
     if is_hosted:
-        host = os.getenv("GRADIO_SERVER_NAME", "0.0.0.0")
+        host = "0.0.0.0"
         port = int(os.getenv("GRADIO_SERVER_PORT", "7860"))
         share = False
         inbrowser = False
     else:
         host = "127.0.0.1"
         port = _find_open_port()
-        share = True
+        share = False
         inbrowser = True
 
     print(f"\n[Aarogya] Starting on http://{host}:{port}  (hosted={is_hosted})\n")
@@ -109,9 +125,8 @@ def main():
         server_port=port,
         share=share,
         inbrowser=inbrowser,
-        theme=dark_theme,
-        css=CUSTOM_CSS,
     )
+
 
 if __name__ == "__main__":
     main()

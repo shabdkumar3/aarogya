@@ -4,43 +4,55 @@ from database.queries import get_patient_dropdown_choices
 
 
 def build_diagnoscan_tab():
-    with gr.Tab("🔬  DiagnoScan"):
-        gr.HTML("""
-        <div class="aa-tab-title">AI Triage Assessment</div>
-        <div class="aa-tab-subtitle">Upload a patient photo + describe symptoms. Gemma 4's multimodal vision returns structured triage in the patient's language.</div>
-        """)
+    with gr.TabItem("🔬 DiagnoScan"):
+        gr.HTML('<div class="section-header"><div class="section-icon">🔬</div><h3>AI-Assisted Symptom Triage</h3></div>')
+        gr.HTML('<div class="alert-warning">Gemma 4 multimodal triage — for ASHA worker decision support only. Not a clinical diagnosis.</div>')
 
         with gr.Row():
             with gr.Column(scale=1):
-                gr.HTML('<div class="aa-section-label">Input</div>')
-                patient_dd  = gr.Dropdown(label="Select Patient *", choices=get_patient_dropdown_choices(), interactive=True)
-                refresh_btn = gr.Button("🔄  Refresh Patients", variant="secondary", size="sm")
-                image_in    = gr.Image(label="📷  Photo of Condition *", type="pil", height=240)
-                symptom_in  = gr.Textbox(label="Describe Symptoms *",
-                                         placeholder="Hindi ya English mein likhein...\nजैसे: 3 din se bukhar hai, pair mein dard hai",
+                patient_dd  = gr.Dropdown(label="Select Patient", choices=[], interactive=True)
+                refresh_btn = gr.Button("🔄 Refresh", variant="secondary", size="sm")
+                symptoms_in = gr.Textbox(label="Describe Symptoms",
+                                         placeholder="e.g. 3-day fever, cough, fatigue in child aged 7",
                                          lines=4)
+                image_in    = gr.Image(label="Upload Photo (optional — skin, wound, rash)",
+                                       type="pil", sources=["upload", "webcam"])
                 lang_in     = gr.Dropdown(label="Response Language",
-                                          choices=["Hindi","English","Tamil","Telugu","Bengali"],
+                                          choices=["Hindi", "English", "Tamil", "Telugu", "Bengali"],
                                           value="Hindi")
-                scan_btn    = gr.Button("🔍  Run DiagnoScan", variant="primary", size="lg")
+                scan_btn    = gr.Button("Run DiagnoScan", variant="primary")
 
             with gr.Column(scale=1):
-                gr.HTML('<div class="aa-section-label">Triage Result</div>')
-                result_out  = gr.Markdown("*Results will appear here after running DiagnoScan.*")
-                error_out   = gr.Markdown("")
-                with gr.Accordion("🛠  Raw JSON Output (debug)", open=False):
-                    raw_out = gr.Textbox(label="Raw Model Output", lines=8, interactive=False)
+                result_out  = gr.Markdown(label="Triage Report", value="*Submit symptoms to generate triage report.*")
+                model_badge = gr.Textbox(label="Model Used", interactive=False, value="—")
+                gr.HTML('<div style="margin-top:16px;color:#94A3B8;font-size:0.8rem;font-weight:600;">DIAGNOSIS HISTORY</div>')
+                history_out = gr.Markdown(value="*Select a patient to view history.*")
 
-        gr.HTML('<div class="aa-section-label" style="margin-top:32px">Diagnosis History</div>')
-        history_btn = gr.Button("📋  Load History", variant="secondary")
-        history_out = gr.Markdown("")
+        def do_scan(pid_label, symptoms, image, lang):
+            if not pid_label:
+                return "⚠️ Please select a patient first.", "—", ""
+            try:
+                pid = int(pid_label.split("|")[0].strip())
+            except Exception:
+                return "⚠️ Invalid patient selection.", "—", ""
+            result, model = run_diagnoscan(pid, symptoms, image, lang)
+            history = get_diagnosis_history_markdown(pid)
+            return result, model, history
 
-        def on_scan(patient, image, symptoms, language):
-            formatted, raw, error = run_diagnoscan(patient, image, symptoms, language)
-            err_display = f"❌ {error}" if error else ""
-            return formatted, err_display, raw or ""
+        def do_refresh():
+            return gr.update(choices=get_patient_dropdown_choices())
 
-        refresh_btn.click(fn=lambda: gr.update(choices=get_patient_dropdown_choices()), outputs=patient_dd)
-        scan_btn.click(fn=on_scan, inputs=[patient_dd, image_in, symptom_in, lang_in],
-                       outputs=[result_out, error_out, raw_out])
-        history_btn.click(fn=get_diagnosis_history_markdown, inputs=patient_dd, outputs=history_out)
+        def load_history(pid_label):
+            if not pid_label:
+                return "*Select a patient to view history.*"
+            try:
+                pid = int(pid_label.split("|")[0].strip())
+                return get_diagnosis_history_markdown(pid)
+            except Exception:
+                return "*Could not load history.*"
+
+        scan_btn.click(do_scan,
+                       inputs=[patient_dd, symptoms_in, image_in, lang_in],
+                       outputs=[result_out, model_badge, history_out])
+        refresh_btn.click(do_refresh, outputs=[patient_dd])
+        patient_dd.change(load_history, inputs=[patient_dd], outputs=[history_out])

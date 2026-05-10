@@ -3,37 +3,26 @@ from modules.dashboard import get_dashboard_markdown, get_weekly_health_tips
 
 
 def build_dashboard_tab():
-    with gr.Tab("📊  Dashboard"):
-        gr.HTML("""
-        <div class="aa-tab-title">ASHA Worker Dashboard</div>
-        <div class="aa-tab-subtitle">All patients grouped by risk — see who needs attention first.</div>
-        """)
+    with gr.TabItem("📊 Dashboard"):
+        gr.HTML('<div class="section-header"><div class="section-icon">📊</div><h3>ASHA Field Dashboard</h3></div>')
 
-        # Action buttons — own row
         with gr.Row():
-            refresh_btn = gr.Button("🔄  Refresh Dashboard", variant="primary", scale=1)
+            with gr.Column(scale=2):
+                refresh_btn   = gr.Button("🔄 Refresh Dashboard", variant="primary")
+                dashboard_out = gr.Markdown(value="*Click Refresh Dashboard to load statistics.*")
 
-        # Legend
-        gr.HTML("""
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 20px 0">
-          <span class="aa-badge aa-badge-red">🔴 At Risk</span>
-          <span class="aa-badge aa-badge-yellow">🟡 Needs Attention</span>
-          <span class="aa-badge aa-badge-green">🟢 Stable</span>
-          <span class="aa-badge aa-badge-grey">🆕 New</span>
-        </div>
-        """)
+            with gr.Column(scale=1):
+                gr.HTML('<div style="color:#94A3B8;font-size:0.8rem;font-weight:600;margin-bottom:8px;">WEEKLY HEALTH TIPS</div>')
+                tips_btn = gr.Button("Generate Tips with Gemma", variant="secondary")
+                tips_out = gr.Markdown(value="*Click to generate AI health tips.*")
+                tips_model = gr.Textbox(label="Model", interactive=False, value="—")
 
-        dashboard_out = gr.Markdown("*Click Refresh Dashboard to load patient list.*")
+        def do_refresh():
+            return get_dashboard_markdown()
 
-        gr.HTML('<div class="aa-section-label" style="margin-top:32px">Weekly Health Tips</div>')
+        def do_tips():
+            tips, model = get_weekly_health_tips()
+            return tips, model
 
-        # Tips inputs — clean row
-        with gr.Row():
-            focus_in  = gr.Textbox(label="Focus Area", value="seasonal diseases", scale=3, placeholder="e.g. monsoon diseases, child nutrition")
-            tips_lang = gr.Dropdown(label="Language", choices=["Hindi", "English"], value="Hindi", scale=1)
-            tips_btn  = gr.Button("💡  Generate Tips", variant="primary", scale=1)
-
-        tips_out = gr.Markdown("")
-
-        refresh_btn.click(fn=get_dashboard_markdown, outputs=dashboard_out)
-        tips_btn.click(fn=get_weekly_health_tips, inputs=[focus_in, tips_lang], outputs=tips_out)
+        refresh_btn.click(do_refresh, outputs=[dashboard_out])
+        tips_btn.click(do_tips, outputs=[tips_out, tips_model])

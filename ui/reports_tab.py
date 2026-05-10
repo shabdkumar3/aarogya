@@ -4,31 +4,31 @@ from database.queries import get_patient_dropdown_choices
 
 
 def build_reports_tab():
-    with gr.Tab("📄  PDF Reports"):
-        gr.HTML("""
-        <div class="aa-tab-title">Generate Patient Health Report</div>
-        <div class="aa-tab-subtitle">Creates a printable PDF summary for handing to a PHC doctor — includes AI-written clinical summary.</div>
-        """)
+    with gr.TabItem("📄 PDF Reports"):
+        gr.HTML('<div class="section-header"><div class="section-icon">📄</div><h3>Generate Patient Health Reports</h3></div>')
 
         with gr.Row():
-            patient_dd  = gr.Dropdown(label="Select Patient", choices=get_patient_dropdown_choices(), interactive=True, scale=5)
-            refresh_btn = gr.Button("🔄  Refresh", scale=1, variant="secondary")
+            with gr.Column(scale=1):
+                patient_dd  = gr.Dropdown(label="Select Patient", choices=[], interactive=True)
+                refresh_btn = gr.Button("🔄 Refresh", variant="secondary", size="sm")
+                gen_btn     = gr.Button("Generate PDF Report", variant="primary")
+                status_out  = gr.Markdown(value="*Select a patient and generate their report.*")
 
-        gr.HTML("""
-        <div class="aa-callout aa-callout-success" style="margin-top:14px">
-          📋 <strong>The PDF includes:</strong> patient profile · recent triage assessments · active medications · 7-day adherence log · AI-generated clinical summary (English).
-        </div>
-        """)
+            with gr.Column(scale=1):
+                pdf_out = gr.File(label="Download Report", interactive=False)
 
-        generate_btn = gr.Button("📄  Generate PDF Report", variant="primary", size="lg")
-        status_out   = gr.Markdown("")
-        pdf_out      = gr.File(label="Download Report", visible=False)
+        def do_refresh():
+            return gr.update(choices=get_patient_dropdown_choices())
 
-        def on_generate(patient_dropdown):
-            pdf_path, error = generate_patient_pdf(patient_dropdown)
-            if error:
-                return f"❌ {error}", gr.update(visible=False)
-            return "✅ Report generated successfully. Click below to download.", gr.update(value=pdf_path, visible=True)
+        def do_generate(pid_label):
+            if not pid_label:
+                return "⚠️ Please select a patient first.", None
+            try:
+                pid = int(pid_label.split("|")[0].strip())
+            except Exception:
+                return "⚠️ Invalid patient selection.", None
+            path, msg = generate_patient_pdf(pid)
+            return msg, path
 
-        refresh_btn.click(fn=lambda: gr.update(choices=get_patient_dropdown_choices()), outputs=patient_dd)
-        generate_btn.click(fn=on_generate, inputs=patient_dd, outputs=[status_out, pdf_out])
+        refresh_btn.click(do_refresh, outputs=[patient_dd])
+        gen_btn.click(do_generate, inputs=[patient_dd], outputs=[status_out, pdf_out])

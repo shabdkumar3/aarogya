@@ -1,5 +1,5 @@
-# Core
-gradio>=5.0.0
+# Core (Gradio 5 to fix HfFolder import error)
+gradio==5.9.1
 huggingface_hub>=0.26.0
 python-dotenv>=1.0.1
 Pillow>=10.4.0
@@ -15,10 +15,9 @@ gTTS==2.5.1
 # PDF Reports
 reportlab==4.2.2
 
-# Fine-tuning (Kaggle GPU only — see finetuning/AAROGYA_KAGGLE.ipynb)
-# unsloth, trl, datasets, transformers, torch, bitsandbytes
+# Optional: REST API (uncomment only if running api.py for the React frontend)
+# fastapi==0.115.0
+# uvicorn[standard]==0.30.1
+# python-multipart==0.0.9
 
-# REST API (optional — only if running api.py)
-fastapi==0.111.0
-uvicorn[standard]==0.30.1
-python-multipart==0.0.9
+# Fine-tuning runs separately on Kaggle GPU — see finetuning/AAROGYA_KAGGLE.ipynb

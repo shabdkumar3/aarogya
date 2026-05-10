@@ -10,7 +10,10 @@
       "Bash(findstr :7862)",
       "Bash(awk '{print $5}')",
       "Bash(xargs -I{} taskkill /F /PID {})",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)"
     ]
   }
 }

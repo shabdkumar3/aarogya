@@ -1,4 +1,5 @@
 import gradio as gr
+import os
 import socket
 from database.schema import initialize_database
 from ui.registry_tab import build_registry_tab
@@ -89,13 +90,25 @@ def main():
         build_patient_lite_tab()
         build_reports_tab()
 
-    port = _find_open_port()
-    print(f"\n[Aarogya] Starting on http://127.0.0.1:{port}\n")
+    # Detect environment: HF Space sets SPACE_ID, Docker/server contexts need 0.0.0.0
+    is_hosted = bool(os.getenv("SPACE_ID") or os.getenv("GRADIO_SERVER_NAME"))
+    if is_hosted:
+        host = os.getenv("GRADIO_SERVER_NAME", "0.0.0.0")
+        port = int(os.getenv("GRADIO_SERVER_PORT", "7860"))
+        share = False
+        inbrowser = False
+    else:
+        host = "127.0.0.1"
+        port = _find_open_port()
+        share = True
+        inbrowser = True
+
+    print(f"\n[Aarogya] Starting on http://{host}:{port}  (hosted={is_hosted})\n")
     app.launch(
-        server_name="127.0.0.1",
+        server_name=host,
         server_port=port,
-        share=True,
-        inbrowser=True,
+        share=share,
+        inbrowser=inbrowser,
         theme=dark_theme,
         css=CUSTOM_CSS,
     )

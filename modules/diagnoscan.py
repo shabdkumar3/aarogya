@@ -1,5 +1,5 @@
 """DiagnoScan — multimodal triage using Gemma 4."""
-import base64, json, os, io
+import base64, json, os, io, re
 from datetime import datetime
 from database.queries import save_diagnosis, get_diagnoses_for_patient, get_patient_by_id
 from llm.client import call_gemma_multimodal, call_gemma_text
@@ -9,10 +9,13 @@ IMAGE_SAVE_DIR = "saved_images"
 os.makedirs(IMAGE_SAVE_DIR, exist_ok=True)
 
 URGENCY_EMOJI = {
-    "Monitor at Home":   "🟢",
-    "Visit PHC":         "🟡",
-    "Emergency Referral":"🔴",
+    "Monitor at Home":    "🟢",
+    "Visit PHC":          "🟡",
+    "Emergency Referral": "🔴",
 }
+
+VALID_URGENCIES = {"Monitor at Home", "Visit PHC", "Emergency Referral"}
+
 
 def _pil_to_b64(image):
     try:
@@ -23,6 +26,7 @@ def _pil_to_b64(image):
     except Exception:
         return None
 
+
 def _save_image(image):
     try:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -32,30 +36,123 @@ def _save_image(image):
     except Exception:
         return ""
 
+
 def _parse_json(raw):
-    """Try to extract JSON from raw LLM response."""
+    """
+    Aggressively extract a triage JSON from raw LLM text.
+    Handles: pure JSON, markdown fences, reasoning-then-JSON,
+    and partial/malformed JSON with fixable urgency values.
+    """
     if not raw:
         return None
-    clean = raw.strip()
-    # Strip markdown fences
-    if "```" in clean:
-        for part in clean.split("```"):
-            part = part.strip().lstrip("json").strip()
-            try:
-                return json.loads(part)
-            except Exception:
-                continue
+    text = raw.strip()
+
+    # 1. Strip markdown fences
+    if "```" in text:
+        parts = text.split("```")
+        candidates = [p.strip().lstrip("json").strip() for p in parts]
+    else:
+        candidates = [text]
+
+    # 2. For each candidate try direct parse, then brace extraction
+    for cand in candidates:
+        # Direct parse
+        try:
+            obj = json.loads(cand)
+            if isinstance(obj, dict) and "urgency" in obj:
+                return _normalise(obj)
+        except Exception:
+            pass
+        # Find outermost { ... }
+        try:
+            start = cand.index("{")
+            end   = cand.rindex("}") + 1
+            obj = json.loads(cand[start:end])
+            if isinstance(obj, dict) and "urgency" in obj:
+                return _normalise(obj)
+        except Exception:
+            pass
+
+    # 3. Scan ALL { ... } blocks in the full raw text (handles reasoning-then-JSON)
+    for m in re.finditer(r'\{[^{}]*"urgency"[^{}]*\}', text, re.DOTALL):
+        try:
+            obj = json.loads(m.group())
+            return _normalise(obj)
+        except Exception:
+            pass
+
+    # 4. Greedy scan — largest { ... } block that parses
     try:
-        return json.loads(clean)
+        start = text.index("{")
+        end   = text.rindex("}") + 1
+        obj = json.loads(text[start:end])
+        if isinstance(obj, dict):
+            return _normalise(obj)
     except Exception:
         pass
-    # Try to find first { ... } block
-    try:
-        start = clean.index("{")
-        end   = clean.rindex("}") + 1
-        return json.loads(clean[start:end])
-    except Exception:
-        return None
+
+    # 5. Build fallback JSON from free-text reasoning
+    return _build_from_text(text)
+
+
+def _normalise(obj):
+    """Coerce urgency to exact enum value."""
+    u = str(obj.get("urgency", "")).strip()
+    u_low = u.lower()
+    if "emergency" in u_low or "referral" in u_low:
+        obj["urgency"] = "Emergency Referral"
+    elif "phc" in u_low or "visit" in u_low or "clinic" in u_low or "doctor" in u_low:
+        obj["urgency"] = "Visit PHC"
+    elif "monitor" in u_low or "home" in u_low or "watch" in u_low:
+        obj["urgency"] = "Monitor at Home"
+    # Ensure required keys exist
+    obj.setdefault("conditions", ["Unspecified condition"])
+    obj.setdefault("next_steps", ["Seek medical advice"])
+    obj.setdefault("red_flags",  ["High fever", "Difficulty breathing"])
+    obj.setdefault("asha_note",  "Monitor patient and follow up in 24 hours.")
+    if obj["urgency"] not in VALID_URGENCIES:
+        obj["urgency"] = "Visit PHC"
+    return obj
+
+
+def _build_from_text(text):
+    """Last-resort: infer urgency from keywords and wrap raw text as best-effort JSON."""
+    t = text.lower()
+    if any(k in t for k in ["emergency", "immediately", "life-threatening", "ambulance",
+                              "icu", "severe", "unconscious", "seizure", "urgent referral"]):
+        urgency = "Emergency Referral"
+    elif any(k in t for k in ["phc", "clinic", "doctor", "physician", "hospital",
+                               "test", "blood", "scan", "consult", "visit"]):
+        urgency = "Visit PHC"
+    else:
+        urgency = "Monitor at Home"
+
+    # Try to pull condition names from lines mentioning "condition", "diagnosis", "likely"
+    conditions = []
+    for line in text.splitlines():
+        ll = line.lower()
+        if any(k in ll for k in ["leptospirosis", "malaria", "dengue", "typhoid",
+                                   "pneumonia", "dehydration", "anaemia", "anemia",
+                                   "diarrhoea", "diarrhea", "fever", "infection",
+                                   "conditions:", "likely:", "diagnosis:"]):
+            cline = re.sub(r'^[\-\*\d\.\s]+', '', line).strip()
+            if 5 < len(cline) < 80:
+                conditions.append(cline)
+        if len(conditions) >= 3:
+            break
+
+    if not conditions:
+        conditions = ["Possible infection — see full model response below"]
+
+    return {
+        "conditions":  conditions[:3],
+        "urgency":     urgency,
+        "next_steps":  ["Review full model response for detailed guidance",
+                        "Monitor patient vitals", "Contact PHC if symptoms worsen"],
+        "red_flags":   ["High fever above 102°F", "Difficulty breathing or altered consciousness"],
+        "asha_note":   "Full model reasoning shown below. Use clinical judgment.",
+        "_raw":        text[:600],   # stash for debug display
+    }
 
 
 def run_diagnoscan(pid, symptoms, image, language):
@@ -73,9 +170,9 @@ def run_diagnoscan(pid, symptoms, image, language):
     except Exception:
         patient = {}
 
-    image_path = ""
+    image_path   = ""
     raw_response = ""
-    model_used = "—"
+    model_used   = "—"
 
     try:
         prompt = DIAGNOSCAN_PROMPT.format(
@@ -101,7 +198,7 @@ def run_diagnoscan(pid, symptoms, image, language):
 
     parsed = _parse_json(raw_response)
 
-    # Save to DB regardless of parse success
+    # Save to DB
     try:
         save_diagnosis(
             patient_id=int(pid),
@@ -109,35 +206,44 @@ def run_diagnoscan(pid, symptoms, image, language):
             symptom_description=str(symptoms).strip(),
             raw_response=raw_response or "",
             conditions=", ".join(parsed.get("conditions", [])) if parsed else "",
-            urgency=parsed.get("urgency", "") if parsed else "",
+            urgency=parsed.get("urgency", "")    if parsed else "",
             next_steps="; ".join(parsed.get("next_steps", [])) if parsed else "",
-            red_flags="; ".join(parsed.get("red_flags", [])) if parsed else "",
+            red_flags="; ".join(parsed.get("red_flags", []))   if parsed else "",
             model_used=model_used,
         )
     except Exception:
         pass
 
     if parsed:
-        urgency   = parsed.get("urgency", "Unknown")
-        emoji     = URGENCY_EMOJI.get(urgency, "⚪")
-        conditions= "\n".join(f"- {c}" for c in parsed.get("conditions", []))
-        steps     = "\n".join(f"- {s}" for s in parsed.get("next_steps", []))
-        flags     = "\n".join(f"- {r}" for r in parsed.get("red_flags", []))
-        asha_note = parsed.get("asha_note", "")
-        ts        = datetime.now().strftime("%d %b %Y, %I:%M %p")
+        urgency    = parsed.get("urgency", "Unknown")
+        emoji      = URGENCY_EMOJI.get(urgency, "⚪")
+        conditions = "\n".join(f"- {c}" for c in parsed.get("conditions", []))
+        steps      = "\n".join(f"- {s}" for s in parsed.get("next_steps", []))
+        flags      = "\n".join(f"- {r}" for r in parsed.get("red_flags", []))
+        asha_note  = parsed.get("asha_note", "")
+        ts         = datetime.now().strftime("%d %b %Y, %I:%M %p")
+
+        # If we fell back to text-extraction, show the raw model reasoning too
+        raw_section = ""
+        if "_raw" in parsed:
+            raw_section = (
+                f"\n\n---\n<details><summary>📄 Full model reasoning</summary>\n\n"
+                f"{parsed['_raw']}\n</details>"
+            )
+
         result = (
             f"## {emoji} Urgency: **{urgency}**\n\n"
             f"### Possible Conditions\n{conditions}\n\n"
             f"### Recommended Next Steps\n{steps}\n\n"
             f"### Red Flag Symptoms — Watch For\n{flags}\n\n"
-            f"### ASHA Worker Note\n{asha_note}\n\n"
+            f"### ASHA Worker Note\n{asha_note}"
+            f"{raw_section}\n\n"
             f"---\n*Model: {model_used} | {ts}*\n"
             f"*Triage support only — not a clinical diagnosis.*"
         )
     else:
         result = (
-            f"⚠️ Could not parse structured response.\n\n"
-            f"**Raw model output:**\n\n{raw_response}\n\n"
+            f"⚠️ Could not parse response. Raw model output:\n\n{raw_response}\n\n"
             f"---\n*Model: {model_used}*"
         )
 
@@ -156,7 +262,7 @@ def get_diagnosis_history_markdown(pid):
         return "*No diagnoses recorded yet.*"
     parts = []
     for d in diagnoses[:10]:
-        emoji = URGENCY_EMOJI.get(d.get('urgency', ''), "⚪")
+        emoji = URGENCY_EMOJI.get(d.get("urgency", ""), "⚪")
         parts.append(
             f"**{str(d.get('created_at',''))[:10]}** — {emoji} {d.get('urgency','')}\n"
             f"Conditions: {d.get('conditions','')}\n"

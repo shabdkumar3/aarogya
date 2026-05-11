@@ -7,60 +7,39 @@ from llm.prompts import PATIENT_LITE_PROMPT
 def _clean_response(text):
     """
     Strip Gemma 4 chain-of-thought scaffolding.
-    The model sometimes outputs reasoning bullets/headers before the actual answer.
-    We want only the final clean conversational paragraph(s).
+    Only remove lines that are clearly internal reasoning — NOT the actual answer.
     """
     if not text:
         return text
 
-    # If the response contains the actual Hindi/vernacular answer after reasoning,
-    # extract the last clean quoted block (wrapped in " or just the last paragraph cluster)
-    # Look for a final "draft" block between quotes
-    quoted = re.findall(r'"([^"]{30,})"', text, re.DOTALL)
-    if quoted:
-        return quoted[-1].strip()
-
-    # Strip lines that look like reasoning scaffolding:
-    # - Lines starting with *, -, •, numbered lists with reasoning labels
-    # - Lines containing "Draft:", "Cause:", "Immediate Actions:", "Emergency Sign:"
-    # - Lines containing "Hindi:", "Yes.", "Yes ("
-    # - Lines with nested bullets (multiple spaces + * or -)
-    JUNK_PATTERNS = [
-        r'^\s*\*\s+\*[\w]',          # * *Label:*
-        r'^\s*[-*•]\s+\*\*(Draft|Cause|Immediate|Emergency|Hindi)',
-        r'^\s*[-*•]\s+(Draft|Cause|Immediate Actions|Emergency Sign|Hindi):',
-        r'^\s*\d+[-.)]\s+\*\*',      # 1. **something
-        r'^\s*\*\s+\d+[-.)]\s',      # *   1. something
-        r'^\s*[-*•]\s+\*[\w]',       # * *something*
-        r'(Likely cause|1-2 sentences|2-3 immediate|under 80 words|'
-        r'No JSON|No bullet|conversational Hindi|Under 80)',
+    lines = text.splitlines()
+    clean = []
+    skip_patterns = [
+        r'^\s*[-*•]\s+\*\*(Cause|Immediate|Emergency|Draft|Hindi|Language|Format)',
+        r'^\s*\d+\.\s+\*\*',            # 1. **Something
+        r'^\s*[-*]\s+\d+[-.)]\s',       # * 1. something
+        r'(1-2 sentences|2-3 simple|under 80 words|No JSON|No bullet|conversational Hindi)',
+        r'^\s*[-*•]\s+\*(Cause|Draft|Immediate|Emergency)',
+        r'^\*\s+\*Cause',
+        r'^#+\s',                        # ## headers
     ]
 
-    lines = text.splitlines()
-    clean_lines = []
     for line in lines:
-        skip = False
-        for pat in JUNK_PATTERNS:
-            if re.search(pat, line, re.IGNORECASE):
-                skip = True
-                break
+        skip = any(re.search(p, line, re.IGNORECASE) for p in skip_patterns)
         if not skip:
-            clean_lines.append(line)
+            clean.append(line)
 
-    cleaned = "\n".join(clean_lines).strip()
+    result = '\n'.join(clean).strip()
 
-    # If still looks like it has markdown reasoning, take last solid paragraph block
-    if re.search(r'(\*{1,2}[A-Z]|\d\.\s+\*)', cleaned):
-        # Split on double newlines and take last non-empty chunk
-        paragraphs = [p.strip() for p in re.split(r'\n{2,}', cleaned) if p.strip()]
-        if paragraphs:
-            # Prefer the last paragraph that doesn't start with * or - or digit
-            for para in reversed(paragraphs):
-                if not re.match(r'^[\*\-\d]', para):
-                    return para
-            return paragraphs[-1]
+    # If still has heavy markdown reasoning, take last solid paragraph
+    if re.search(r'(\*{2}[A-Z]|\n\s*[-*]\s)', result):
+        paragraphs = [p.strip() for p in re.split(r'\n{2,}', result) if p.strip()]
+        # Find last paragraph that looks like a real sentence (not a bullet list)
+        for para in reversed(paragraphs):
+            if not re.match(r'^[\*\-\d#]', para) and len(para) > 30:
+                return para
 
-    return cleaned if cleaned else text.strip()
+    return result if result else text.strip()
 
 
 def run_patient_lite_text(symptom_text, language, image=None):
@@ -88,8 +67,8 @@ def run_patient_lite_text(symptom_text, language, image=None):
         else:
             raw, model = call_gemma_text(prompt)
 
-        answer = _clean_response(raw) or "No response received."
+        answer = _clean_response(raw) or raw or "No response received."
         return answer, (model or "—")
 
     except Exception as e:
-        return f"❌ Could not get a response: {e}", "error"
+        return f"❌ Error: {e}", "error"
